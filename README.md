@@ -1,50 +1,52 @@
 # WebToApp Converter Engine
 
-This project contains a complete automation system to turn any website into a native Android App (APK/AAB) and Windows App (EXE) using GitHub Actions.
+This project turns any website into a native Android App (APK/AAB) and Windows App (EXE).
 
-## Project Structure
-*   `android-template/`: The native Android project files (Java/Gradle).
-*   `windows-template/`: The native Windows project files (Rust/Tauri).
-*   `.github/workflows/build-app.yml`: The automation script.
+## 📂 Project Structure
+*   `android-template/`: The native Android project files.
+*   `windows-template/`: The native Windows project files.
+*   `.github/workflows/`: The automation script that does the building.
+*   `frontend/`: **Deploy this to Vercel**. The beautiful website users see.
+*   `backend/`: **Deploy this to Render**. The API that talks to GitHub.
 
-## 🚀 How to set this up
+---
 
-### Step 1: Upload to GitHub
-1.  Create a new **Private Repository** on GitHub.
-2.  Push all the files in this folder to that repository.
-    ```bash
-    git init
-    git add .
-    git commit -m "Initial commit"
-    git branch -M main
-    git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
-    git push -u origin main
-    ```
+## 🚀 Deployment Guide (How to put it online)
 
-### Step 2: Enable Permissions
-1.  Go to your Repository Settings on GitHub.
-2.  Go to **Actions** -> **General**.
-3.  Scroll to "Workflow permissions".
-4.  Select **"Read and write permissions"**. (This is required to upload the Release files).
-5.  Click **Save**.
+You have one Git Repository, but you will connect it to **two** different services.
 
-### Step 3: Run the Build
-1.  Go to the **Actions** tab in your repository.
-2.  On the left, click **"Build App"**.
-3.  On the right, click the **"Run workflow"** dropdown button.
-4.  Fill in the form:
-    *   **App Name**: e.g., "My Shop"
-    *   **App URL**: e.g., "https://myshop.com"
-    *   **Icon URL**: e.g., "https://myshop.com/logo.png" (Must be a direct link to a PNG)
-    *   **App ID**: e.g., "com.myshop.app"
-5.  Click **Run workflow**.
+### Part 1: Deploy the Backend (Render)
+1.  Go to [Render.com](https://render.com) and create a **Web Service**.
+2.  Connect this GitHub repository.
+3.  **Crucial Step**: In the settings, look for **Root Directory**.
+    *   Set Root Directory to: `backend`
+4.  **Enviroment Variables** (Add these in Render settings):
+    *   `GITHUB_TOKEN`: Your Personal Access Token (Settings -> Developer Settings -> Personal Access Tokens).
+    *   `REPO_OWNER`: Your GitHub username.
+    *   `REPO_NAME`: The name of this repository.
+5.  Click **Deploy**. Copy the URL Render gives you (e.g., `https://my-backend.onrender.com`).
 
-### Step 4: Download Your App
-1.  Wait about 5-8 minutes for the build to finish.
-2.  Go to the **Code** tab (main page).
-3.  Look at the right sidebar under **"Releases"**.
-4.  You will see a new release (e.g., `App Build - My Shop`).
-5.  Click it to download your `.apk`, `.aab`, and `.exe` files.
+### Part 2: Deploy the Frontend (Vercel)
+1.  Go to [Vercel.com](https://vercel.com) and Add New > Project.
+2.  Import this same GitHub repository.
+3.  **Crucial Step**: It will ask "Framework Preset". It should detect Next.js automatically.
+4.  Look for **Root Directory** (Edit button).
+    *   Select the `frontend` folder.
+5.  **Environment Variables**:
+    *   `NEXT_PUBLIC_API_URL`: Paste your Render Backend URL here (e.g., `https://my-backend.onrender.com/api` - don't forget the `/api` at the end!).
+6.  Click **Deploy**.
+
+---
+
+## 🛠️ How it works
+1.  User goes to your **Vercel Website**.
+2.  User types a URL.
+3.  **Vercel** talks to **Render**.
+4.  **Render** commands **GitHub Actions** to start building.
+5.  **GitHub Actions** builds the APK/EXE and releases them.
+6.  The Website shows the user the download link!
+
+---
 
 ## 🛑 Important Notes
 *   **Android Signing**: The APK generated is signed with a "Debug Key". It allows you to install it on phones, but the Play Store requires a "Release Key". To adding real signing, you would need to add `storeFile` secrets to the workflow.

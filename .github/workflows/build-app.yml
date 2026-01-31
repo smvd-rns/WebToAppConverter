@@ -1,0 +1,165 @@
+name: Build App
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'App Name'
+        required: true
+        default: 'My Web App'
+      app_url:
+        description: 'Website URL (start with https://)'
+        required: true
+        default: 'https://google.com'
+      icon_url:
+        description: 'Icon URL (Direct PNG link, square aspect ratio)'
+        required: true
+        default: 'https://cdn-icons-png.flaticon.com/512/25/25231.png'
+      app_id:
+        description: 'App ID (unique, e.g. com.myapp.web)'
+        required: true
+        default: 'com.myapp.web'
+
+jobs:
+  # ------------------------------------------------------------------
+  # JOB 1: ANDROID BUILD (Generate APK & AAB)
+  # ------------------------------------------------------------------
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          
+      - name: Install ImageMagick (for icon resizing)
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
+
+      - name: Download & Process Icon
+        run: |
+          mkdir -p icons_temp
+          # Download icon
+          curl -L "${{ inputs.icon_url }}" -o icons_temp/icon.png
+          
+          # Generate Android Mipmaps
+          # xxxhdpi (192x192)
+          convert icons_temp/icon.png -resize 192x192 android-template/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          convert icons_temp/icon.png -resize 192x192 android-template/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+          # xxhdpi (144x144)
+          convert icons_temp/icon.png -resize 144x144 android-template/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          convert icons_temp/icon.png -resize 144x144 android-template/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+          # xhdpi (96x96)
+          convert icons_temp/icon.png -resize 96x96 android-template/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          convert icons_temp/icon.png -resize 96x96 android-template/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+          # hdpi (72x72)
+          convert icons_temp/icon.png -resize 72x72 android-template/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          convert icons_temp/icon.png -resize 72x72 android-template/app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+          # mdpi (48x48)
+          convert icons_temp/icon.png -resize 48x48 android-template/app/src/main/res/mipmap-mdpi/ic_launcher.png
+          convert icons_temp/icon.png -resize 48x48 android-template/app/src/main/res/mipmap-mdpi/ic_launcher_round.png
+
+      - name: Inject Configuration
+        run: |
+          # 1. Inject App Name into strings.xml
+          sed -i 's|<string name="app_name">WebToApp</string>|<string name="app_name">${{ inputs.app_name }}</string>|g' android-template/app/src/main/res/values/strings.xml
+          
+          # 2. Inject URL into MainActivity.java
+          # We use a different delimiter (#) for sed because URLs contain slashes
+          sed -i 's#https://google.com#${{ inputs.app_url }}#g' android-template/app/src/main/java/com/template/app/MainActivity.java
+          
+          # 3. Inject App ID into build.gradle
+          sed -i 's|com.template.app|${{ inputs.app_id }}|g' android-template/app/build.gradle
+
+      - name: Build with Gradle
+        working-directory: ./android-template
+        run: chmod +x gradlew && ./gradlew assembleRelease bundleRelease
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: android-builds
+          path: |
+            android-template/app/build/outputs/apk/release/*.apk
+            android-template/app/build/outputs/bundle/release/*.aab
+
+  # ------------------------------------------------------------------
+  # JOB 2: WINDOWS BUILD (Generate EXE)
+  # ------------------------------------------------------------------
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          
+      - name: Install ImageMagick (Windows)
+        run: choco install imagemagick
+        
+      - name: Download & Process Icon
+        run: |
+          mkdir icons_temp
+          # Download icon
+          curl -L "${{ inputs.icon_url }}" -o icons_temp/icon.png
+          # Convert to ICO using magick
+          magick icons_temp/icon.png -resize 256x256 windows-template/src-tauri/icons/icon.ico
+          copy icons_temp/icon.png windows-template/src-tauri/icons/icon.png
+
+      - name: Inject Configuration
+        working-directory: ./windows-template
+        run: |
+          # Use PowerShell to update JSON and Rust file safely
+          $path = "src-tauri/tauri.conf.json"
+          $json = Get-Content $path | ConvertFrom-Json
+          $json.package.productName = "${{ inputs.app_name }}"
+          $json.tauri.windows[0].title = "${{ inputs.app_name }}"
+          $json.tauri.bundle.identifier = "${{ inputs.app_id }}"
+          $json | ConvertTo-Json -Depth 10 | Set-Content $path
+          
+          # Update URL in Rust file
+          $rsPath = "src-tauri/src/main.rs"
+          (Get-Content $rsPath) -replace 'https://google.com', '${{ inputs.app_url }}' | Set-Content $rsPath
+          
+      - name: Build Tauri App
+        working-directory: ./windows-template
+        run: |
+          npm install
+          npm run tauri build
+        
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-builds
+          path: windows-template/src-tauri/target/release/bundle/nsis/*.exe
+
+  # ------------------------------------------------------------------
+  # JOB 3: PUBLISH RELEASE
+  # ------------------------------------------------------------------
+  create-release:
+    needs: [build-android, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v3
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: App Build - ${{ inputs.app_name }}
+          files: |
+            android-builds/*.apk
+            android-builds/*.aab
+            windows-builds/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
